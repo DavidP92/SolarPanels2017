@@ -1,0 +1,262 @@
+/*
+ * Created by Charles Owen Engen
+ * Last Modification: 10/6/2017
+ * 
+ */
+
+#include "Tool.h"
+#include <SD.h>
+#include <SPI.h>
+
+boolean log_panels = true;
+
+// Varible to control Serial printing
+boolean printE = true;
+
+// Controls for logging and writing data
+const int PROGMEM LOG_INTERVAL_SEC = 1500;
+const int PROGMEM LOG_PANEL_INTERVAL = 1500;
+uint32_t timeStamp = 0;
+
+// Create the chipSelect
+const int PROGMEM chipSelect = 8;
+
+// Const used to identify SD card slot
+const int PROGMEM chipset = 8;
+
+// Varible for Log file name
+char logFileName[16];
+ 
+// LED state to indicate writing of SD card
+boolean ledState = false;
+
+// Convert C to F
+float cToF(float cTemp) {return cTemp * (9.0/5.0) + 32;}
+// Titles for column headings - **Add more panels when added**
+#ifdef log_panel
+const String PROGMEM sensorNames = "Time Stamp (ms), Raw Solar 1 (s1), Raw Solar 2 (s2), Raw Solar 3 (s3), Raw Solar 4 (s4), Raw Light Sensor (S5), Raw Light Sensor (S6)";
+#else
+const String PROGMEM sensorNames = "Time Stamp (ms), Temp Inside C (T1), Temp Outside C (T2), (F1), (F2), Humidity (Hum), Pressure (Prs), Accel X (X), Accel Y (Y), Accel Z (Z)";
+#endif
+  
+
+// Sensors are created here
+SENSOR temp1 = {0, 0, 0, TEMP};
+SENSOR temp2 = {1, 0, 0, TEMP};
+SENSOR humidity = {2, 0, 0, HUMIDITY};
+SENSOR pressure = {3, 0, 0, PRESSURE};
+SENSOR accelX = {4, 0, 0, ACCEL};
+SENSOR accelY = {5, 0, 0, ACCEL};
+SENSOR accelZ = {6, 0, 0, ACCEL};
+SENSOR s1 = {0, 0, 0, SOLAR};
+SENSOR s2 = {1, 0, 0, SOLAR};
+SENSOR s3 = {2, 0, 0, SOLAR};
+SENSOR s4 = {3, 0, 0, SOLAR};
+SENSOR s5 = {4, 0, 0, LIGHT};
+SENSOR s6 = {5, 0, 0, LIGHT};
+
+// Function to collect data and assign it to the proper variables in the sensor struct
+void collectData(SENSOR* sensor)
+{
+  int t = analogRead((*sensor)->_aPin);
+  (*sensor)->_cVolt = t * (5.0 / 1023);
+
+  switch ((*sensor)->_sType)
+  {
+    case TEMP:
+    (*sensor)->_sData = (((*sensor)->_cVolt) - 0.5 ) / 0.01;
+    break;
+    case HUMIDITY:
+    (*sensor)->_sData = ((((*sensor)->_cVolt) / 5.0) - 0.16) / 0.0062;
+    break;
+    case PRESSURE:
+    (*sensor)->_sData = ((*sensor)->_cVolt) * (15.0 / 4.0);
+    break;
+    case ACCEL:
+    (*sensor)->_sData = (((*sensor)->_cVolt) -  (3.2 / 2) / (0.33));
+    break;
+    case LIGHT:
+    (*sensor)->_sData = t ;
+    default:
+    (*sensor)->_sData = (*sensor)->_cVolt;
+    break;
+  }
+}
+
+boolean SDCardInit()
+{
+  // Returns 0 if failed and 1 if passed
+  Serial.println(F("Initializing SD card..."));
+
+  if (!SD.begin(chipSelect))
+  {
+    Serial.println(F("Card failed, or is not present"));
+    delay(100);
+    // Cannot do anything. Try again.
+    return 0;
+  }
+
+  // Card is present
+  Serial.println(F("Searching for unused file name."));
+
+  // Start with LOG0.csv and count up until an unused file name is found
+  for (int i = 0; i < 1000; i++)
+  {
+    sprintf(logFileName, "LOG%d.csv", i);
+    if (!SD.exists(logFileName))
+    {
+      break;
+    }
+  }
+  Serial.println(F("Logfile Name: "));
+  Serial.println(logFileName);
+
+  File dataFile = SD.open(logFileName, FILE_WRITE);
+
+  if (dataFile)
+  {
+    dataFile.println(sensorNames);
+    dataFile.close();
+    Serial.println(F("SD card initialized and data written"));
+    return 1;
+  } else {
+    Serial.println(F("SD present but unable to write to file."));
+    sprintf(logFileName, "LOG0.csv");
+    return 0;
+  }
+}
+
+boolean writeDataToSD(boolean logSensors=false)
+{
+  File dataFile = SD.open(logFileName, FILE_WRITE);
+
+  // if the file is available, write to it
+  if (dataFile)
+  {
+    String dataStream = "";
+    if (logSensors)
+    {
+      if (!log_panels) {
+      // Grab data to save
+        dataStream += (String) (millis()) + ",";
+        dataStream += (String) (temp1->_sData) + ",";
+        dataStream += (String) (temp2->_sData) + ",";
+        dataStream += (String) cToF(temp1->_sData) + ","; // convert to fs
+        dataStream += (String) cToF(temp2->_sData) + ",";
+        dataStream += (String) (humidity->_sData) + ",";
+        dataStream += (String) (pressure->_sData) + ",";
+        dataStream += (String) (accelX->_sData) + ",";
+        dataStream += (String) (accelY->_sData) + ",";
+        dataStream += (String) (accelZ->_sData);
+        
+        // Save Data
+        dataFile.println(dataStream);
+        dataFile.close();
+      }
+      return 1;
+      //*/
+    } else {
+      if (log_panels) {
+      //// Save Data
+        dataStream += (String) (millis()) + ",";
+        dataStream += (String) (s1->_sData) + ",";
+        dataStream += (String) (s2->_sData) + ",";
+        dataStream += (String) (s3->_sData) + ",";
+        dataStream += (String) (s4->_sData) + ",";
+        dataStream += (String) (s5->_sData) + ",";
+        dataStream += (String) (s6->_sData);
+        
+        dataFile.println(dataStream);
+        dataFile.close();
+      }
+      return 1;
+      
+    }
+  } else {
+    Serial.println();
+    Serial.print(F("Error writing to file: "));
+    Serial.println(logFileName);
+    dataFile.close();
+    delay(100);
+    Serial.println(F("Re - Initializing SD card"));
+    return (SDCardInit());
+  }
+}
+
+// Switches the lights state
+void lights()
+{
+  ledState = ledState ? false: true;
+  digitalWrite(9, ledState ? LOW: HIGH);
+  digitalWrite(7, ledState ? LOW: HIGH);
+  digitalWrite(6, ledState ? LOW: HIGH);
+  digitalWrite(5, ledState ? LOW: HIGH);
+  digitalWrite(4, ledState ? LOW: HIGH);
+  digitalWrite(3, ledState ? LOW: HIGH);
+}
+
+void setup() {
+  delay(500);
+  // Start Serial for output
+  if (printE) Serial.begin(9600);
+  
+  // setup LED display
+  pinMode(3, OUTPUT);
+  pinMode(4, OUTPUT);
+  pinMode(5, OUTPUT);
+  pinMode(6, OUTPUT);
+  pinMode(7, OUTPUT);
+  pinMode(9, OUTPUT);
+  pinMode(13, OUTPUT);
+
+  // LED indicator for Arduino on
+  digitalWrite(4, HIGH);
+  
+  
+  // Motor digital write
+  digitalWrite(13, HIGH);
+ 
+  
+  // SD card
+  pinMode(10, OUTPUT);
+  pinMode(chipset, OUTPUT);
+
+  int SDCard();
+
+  delay(1000);
+
+  timeStamp = 0;
+}
+
+void loop() {
+  // Log Data from secondary sensors
+  if ((!log_panels && (millis() % LOG_INTERVAL_SEC == 0)) || (log_panels && (millis() % LOG_PANEL_INTERVAL == 0)))
+  {
+    // Preform Logging
+    // Collect data from all active sensors
+    if (!log_panels) {
+      collectData(&temp1);    
+      collectData(&temp2);    
+      collectData(&humidity);    
+      collectData(&pressure);    
+      collectData(&accelX);    
+      collectData(&accelY);    
+      collectData(&accelZ);
+    }
+    else {
+      collectData(&s1);
+      collectData(&s2);
+      collectData(&s3);
+      collectData(&s4);
+      collectData(&s5);
+      collectData(&s6);
+    }
+    
+    // End data collection
+    // Write data to SD ***MUST BE TRUE FOR MAIN CONTROL***
+    if (writeDataToSD(log_panels ? false: true))
+    {
+      lights();
+    }
+  }
+}
